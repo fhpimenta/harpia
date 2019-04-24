@@ -2,6 +2,8 @@
 
 namespace Modulos\Academico\Http\Controllers;
 
+use Illuminate\Support\Facades\DB;
+use League\Flysystem\FileExistsException;
 use Modulos\Seguranca\Providers\ActionButton\Facades\ActionButton;
 use Modulos\Core\Http\Controller\BaseController;
 use Modulos\Academico\Http\Requests\LancamentoTccRequest;
@@ -13,6 +15,7 @@ use Modulos\Academico\Repositories\AlunoRepository;
 use Modulos\Academico\Repositories\ModuloDisciplinaRepository;
 use Modulos\Academico\Repositories\MatriculaCursoRepository;
 use Modulos\Geral\Repositories\AnexoRepository;
+use Symfony\Component\HttpFoundation\File\Exception\FileException;
 
 class LancamentosTccsController extends BaseController
 {
@@ -172,6 +175,7 @@ class LancamentosTccsController extends BaseController
     public function postCreate(LancamentoTccRequest $request)
     {
         try {
+            DB::beginTransaction();
             $dados = $request->except('trm_id');
 
             $turmaId = $request->input('trm_id');
@@ -180,12 +184,8 @@ class LancamentosTccsController extends BaseController
                 $anexoDocumento = $request->file('ltc_file');
                 $anexoCriado = $this->anexoRepository->salvarAnexo($anexoDocumento);
 
-                if ($anexoCriado['type'] == 'error_exists') {
-                    flash()->error($anexoCriado['message']);
-                    return redirect()->back()->withInput($request->all());
-                }
-
                 if (!$anexoCriado) {
+                    DB::rollback();
                     flash()->error('ocorreu um problema ao salvar o arquivo');
                     return redirect()->back()->withInput($request->all());
                 }
@@ -198,20 +198,40 @@ class LancamentosTccsController extends BaseController
             $lancamentotcc = $this->lancamentotccRepository->create($dados);
 
             if (!$lancamentotcc) {
+                DB::rollback();
+                $this->anexoRepository->deleteFile($anexoCriado->anx_localizacao);
                 flash()->error('Erro ao tentar salvar.');
                 return redirect()->back()->withInput($request->all());
             }
 
-
+            DB::commit();
 
             flash()->success('Lançamento de TCC criado com sucesso.');
             return redirect()->route('academico.lancamentostccs.alunosturma', $turmaId);
-        } catch (\Exception $e) {
+        } catch (FileExistsException $e) {
+            DB::rollback();
             if (config('app.debug')) {
                 throw $e;
             }
 
-            flash()->error('Erro ao tentar atualizar. Caso o problema persista, entre em contato com o suporte.');
+            flash()->error('Arquivo enviado já existe');
+            return redirect()->back()->withInput($request->all());
+        } catch (FileException $e) {
+            DB::rollback();
+            if (config('app.debug')) {
+                throw $e;
+            }
+
+            flash()->error('Erro ao tentar salvar arquivo em disco.');
+            return redirect()->back();
+        } catch (\Exception $e) {
+            DB::rollback();
+            if (config('app.debug')) {
+                throw $e;
+            }
+
+            $this->anexoRepository->deleteFile($anexoCriado->anx_localizacao);
+            flash()->error('Erro ao tentar criar registro. Caso o problema persista, entre em contato com o suporte.');
             return redirect()->back();
         }
     }
@@ -257,7 +277,7 @@ class LancamentosTccsController extends BaseController
             $dados = $request->only($this->lancamentotccRepository->getFillableModelFields());
             $dados['ltc_anx_tcc'] = $lancamentotcc->ltc_anx_tcc;
 
-
+            DB::beginTransaction();
             if ($request->file('ltc_file') != null) {
                 // Novo Anexo
                 $anexoTcc = $request->file('ltc_file');
@@ -267,16 +287,13 @@ class LancamentosTccsController extends BaseController
                     $atualizaAnexo = $this->anexoRepository->atualizarAnexo($lancamentotcc->ltc_anx_tcc, $anexoTcc);
 
                     if ($atualizaAnexo['type'] == 'error_non_existent') {
+                        DB::rollback();
                         flash()->error($atualizaAnexo['message']);
                         return redirect()->back();
                     }
 
-                    if ($atualizaAnexo['type'] == 'error_exists') {
-                        flash()->error($atualizaAnexo['message']);
-                        return redirect()->back()->withInput($request->all());
-                    }
-
                     if (!$atualizaAnexo) {
+                        DB::rollback();
                         flash()->error('ocorreu um problema ao salvar o arquivo');
                         return redirect()->back()->withInput($request->all());
                     }
@@ -284,12 +301,8 @@ class LancamentosTccsController extends BaseController
                     // Cria um novo anexo caso o documento nao tenha anteriormente
                     $anexo = $this->anexoRepository->salvarAnexo($anexoTcc);
 
-                    if ($anexo['type'] == 'error_exists') {
-                        flash()->error($anexo['message']);
-                        return redirect()->back()->withInput($request->all());
-                    }
-
                     if (!$anexo) {
+                        DB::rollback();
                         flash()->error('ocorreu um problema ao salvar o arquivo');
                         return redirect()->back()->withInput($request->all());
                     }
@@ -300,13 +313,33 @@ class LancamentosTccsController extends BaseController
 
 
             if (!$this->lancamentotccRepository->update($dados, $lancamentotcc->ltc_id, 'ltc_id')) {
+                DB::rollback();
                 flash()->error('Erro ao tentar salvar.');
                 return redirect()->back()->withInput($request->all());
             }
 
+            DB::commit();
+
             flash()->success('Lançamento de TCC atualizado com sucesso.');
             return redirect()->route('academico.lancamentostccs.alunosturma', $lancamentotcc->matriculaOferta->matriculaCurso->turma->trm_id);
+        } catch (FileExistsException $e) {
+            DB::rollback();
+            if (config('app.debug')) {
+                throw $e;
+            }
+
+            flash()->error('Arquivo enviado já existe');
+            return redirect()->back()->withInput($request->all());
+        } catch (FileException $e) {
+            DB::rollback();
+            if (config('app.debug')) {
+                throw $e;
+            }
+
+            flash()->error('Erro ao tentar salvar arquivo em disco.');
+            return redirect()->back()->withInput($request->all());
         } catch (\Exception $e) {
+            DB::rollback();
             if (config('app.debug')) {
                 throw $e;
             }

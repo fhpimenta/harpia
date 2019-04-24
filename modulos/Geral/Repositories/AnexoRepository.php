@@ -50,31 +50,18 @@ class AnexoRepository extends BaseRepository
         $caminhoArquivo = $this->basePath . $firstDir . DIRECTORY_SEPARATOR . $secondDir;
 
         if (file_exists($caminhoArquivo . DIRECTORY_SEPARATOR . $hash)) {
-            if (config('app.debug')) {
-                throw new FileExistsException($caminhoArquivo . DIRECTORY_SEPARATOR . $hash);
-            }
-
-            return array(
-                'type' => 'error_exists',
-                'message' => 'Arquivo enviado já existe'
-            );
+            throw new FileExistsException($caminhoArquivo . DIRECTORY_SEPARATOR . $hash);
         }
 
-        try {
-            $anexo = [
-                'anx_nome' => $uploadedFile->getClientOriginalName(),
-                'anx_mime' => $uploadedFile->getClientMimeType(),
-                'anx_extensao' => $uploadedFile->getClientOriginalExtension(),
-                'anx_localizacao' => $hash
-            ];
+        $anexo = [
+            'anx_nome' => $uploadedFile->getClientOriginalName(),
+            'anx_mime' => $uploadedFile->getClientMimeType(),
+            'anx_extensao' => $uploadedFile->getClientOriginalExtension(),
+            'anx_localizacao' => $hash
+        ];
 
-            $uploadedFile->move($caminhoArquivo, $hash);
-            return $this->create($anexo);
-        } catch (\Exception $e) {
-            if (config('app.debug')) {
-                throw $e;
-            }
-        }
+        $uploadedFile->move($caminhoArquivo, $hash);
+        return $this->create($anexo);
     }
 
     /**
@@ -123,36 +110,25 @@ class AnexoRepository extends BaseRepository
         $caminhoArquivo = $this->basePath . $firstDir . DIRECTORY_SEPARATOR . $secondDir;
 
         if (file_exists($caminhoArquivo . DIRECTORY_SEPARATOR . $hash)) {
-            if (config('app.debug')) {
-                throw new FileExistsException($caminhoArquivo . DIRECTORY_SEPARATOR . $hash);
-            }
-
-            return array(
-                'type' => 'error_exists',
-                'message' => 'Arquivo enviado já existe'
-            );
+            throw new FileExistsException($caminhoArquivo . DIRECTORY_SEPARATOR . $hash);
         }
 
-        try {
-            list($firstOldDir, $secondOldDir) = $this->hashDirectories($anexo->anx_localizacao);
-            // Exclui antigo arquivo
-            array_map('unlink', glob($this->basePath . $firstOldDir . DIRECTORY_SEPARATOR . $secondOldDir . DIRECTORY_SEPARATOR . $anexo->anx_localizacao));
+        $oldFile = $anexo->anx_localizacao;
 
-            // Atualiza registro com o novo arquivo
-            $data = [
-                'anx_nome' => $uploadedFile->getClientOriginalName(),
-                'anx_mime' => $uploadedFile->getClientMimeType(),
-                'anx_extensao' => $uploadedFile->getClientOriginalExtension(),
-                'anx_localizacao' => $hash
-            ];
+        // Atualiza registro com o novo arquivo
+        $data = [
+            'anx_nome' => $uploadedFile->getClientOriginalName(),
+            'anx_mime' => $uploadedFile->getClientMimeType(),
+            'anx_extensao' => $uploadedFile->getClientOriginalExtension(),
+            'anx_localizacao' => $hash
+        ];
 
-            $uploadedFile->move($caminhoArquivo, $hash);
-            return $this->update($data, $anexoId, 'anx_id');
-        } catch (\Exception $e) {
-            if (config('app.debug')) {
-                throw $e;
-            }
-        }
+        $uploadedFile->move($caminhoArquivo, $hash);
+        $countRegUpdated =  $this->update($data, $anexoId, 'anx_id');
+
+        $this->deleteFile($oldFile);
+
+        return $countRegUpdated;
     }
 
     /**
@@ -173,14 +149,20 @@ class AnexoRepository extends BaseRepository
         }
 
         try {
-            list($firstOldDir, $secondOldDir) = $this->hashDirectories($anexo->anx_localizacao);
-            // Exclui antigo arquivo
-            array_map('unlink', glob($this->basePath . $firstOldDir . DIRECTORY_SEPARATOR . $secondOldDir . DIRECTORY_SEPARATOR . $anexo->anx_localizacao));
+            $this->deleteFile($anexo->anx_localizacao);
             return $this->delete($anexoId);
         } catch (\Exception $e) {
             if (config('app.debug')) {
                 throw $e;
             }
         }
+    }
+
+    public function deleteFile($name)
+    {
+        list($firstOldDir, $secondOldDir) = $this->hashDirectories($name);
+        // Exclui antigo arquivo
+        array_map('unlink', glob($this->basePath . $firstOldDir . DIRECTORY_SEPARATOR . $secondOldDir . DIRECTORY_SEPARATOR . $name));
+        return true;
     }
 }
